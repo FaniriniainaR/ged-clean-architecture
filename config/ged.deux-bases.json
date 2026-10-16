@@ -1,0 +1,24 @@
+{
+  // Deux bases différentes dans la même application :
+  //   - les documents (et leurs versions et tags) dans MySQL
+  //   - les dossiers dans SQL Server
+  // « database » sert de valeur par défaut pour toute partie non listée dans « databases ».
+  "database": {
+    "provider": "sqlite",
+    "connectionString": "Data Source=ged.db"
+  },
+  "databases": {
+    "documents": {
+      "provider": "mysql",
+      "connectionString": "Server=localhost;Port=3306;Database=ged;User ID=ged;Password=ged"
+    },
+    "folders": {
+      "provider": "sqlserver",
+      "connectionString": "Server=localhost,1433;Database=ged;User ID=sa;Password=Ged_Passw0rd!;TrustServerCertificate=True"
+    }
+  },
+  "storagePath": "storage",
+  "maxFileSizeMb": 20,
+  "trashRetentionDays": 30,
+  "webUrl": "http://localhost:5000/"
+}

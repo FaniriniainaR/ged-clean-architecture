@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Affiche le contenu de la base de la GED, quelle que soit la base configurée (SQLite, MySQL, SQL Server).
+# Fonctionne aussi quand documents et dossiers sont dans deux bases différentes (section « databases »).
 #
 #   scripts/voir-base.sh                 résumé + toutes les tables
 #   scripts/voir-base.sh documents       documents (avec leur dossier)
@@ -9,8 +10,9 @@
 #   scripts/voir-base.sh corbeille       documents dans la corbeille
 #   scripts/voir-base.sh stats           compteurs et taille totale
 #   scripts/voir-base.sh fichiers        fichiers présents dans le dossier de stockage
-#   scripts/voir-base.sh sql "SELECT …"  requête libre
-#   scripts/voir-base.sh shell           console SQL interactive
+#   scripts/voir-base.sh sql "SELECT …"  requête libre (base des documents)
+#   scripts/voir-base.sh sql-dossiers "…" requête libre (base des dossiers)
+#   scripts/voir-base.sh shell [dossiers] console SQL interactive
 #
 # La base est lue dans ged.config.json (ou le fichier indiqué par GED_CONFIG).
 set -euo pipefail
@@ -20,19 +22,25 @@ CONFIG="${GED_CONFIG:-$ROOT/ged.config.json}"
 [[ -f "$CONFIG" ]] || { echo "Configuration introuvable : $CONFIG" >&2; exit 1; }
 
 # Lecture de la configuration (le JSON peut contenir des commentaires //).
+#   read_config <documents|folders> <clé>
+# La base d'une partie est « databases.<partie> » si elle existe, sinon « database ».
 read_config() {
-  python3 - "$CONFIG" "$1" <<'PY'
+  python3 - "$CONFIG" "$1" "$2" <<'PY'
 import json, re, sys
 text = re.sub(r'^\s*//.*$', '', open(sys.argv[1], encoding='utf-8').read(), flags=re.M)
-cfg = json.loads(text)
-db = cfg.get('database', {})
-key = sys.argv[2]
-if key == 'provider':
+cfg = {k.lower(): v for k, v in json.loads(text).items()}
+parts = {k.lower(): v for k, v in (cfg.get('databases') or {}).items()}
+db = parts.get(sys.argv[2]) or cfg.get('database', {})
+db = {k.lower(): v for k, v in db.items()}
+key = sys.argv[3]
+if key == 'signature':
+    print(db.get('provider', '').lower() + '|' + db.get('connectionstring', ''))
+elif key == 'provider':
     print(db.get('provider', 'sqlite').lower())
 elif key == 'storage':
-    print(cfg.get('storagePath', 'storage'))
+    print(cfg.get('storagepath', 'storage'))
 else:  # clé de la chaîne de connexion
-    parts = dict(p.split('=', 1) for p in db.get('connectionString', '').split(';') if '=' in p)
+    parts = dict(p.split('=', 1) for p in db.get('connectionstring', '').split(';') if '=' in p)
     parts = {k.strip().lower(): v.strip() for k, v in parts.items()}
     aliases = {'server': ['server', 'host', 'data source'], 'port': ['port'],
                'database': ['database', 'initial catalog'], 'user': ['user id', 'uid', 'user', 'username'],
@@ -41,8 +49,10 @@ else:  # clé de la chaîne de connexion
 PY
 }
 
-PROVIDER="$(read_config provider)"
 cd "$ROOT"
+
+# Documents et dossiers dans la même base, ou dans deux bases différentes ?
+if [[ "$(read_config documents signature)" == "$(read_config folders signature)" ]]; then SPLIT=0; else SPLIT=1; fi
 
 # Si le client « sqlite3 » n'est pas installé, Python (présent sur Ubuntu) affiche le résultat.
 sqlite_with_python() {
@@ -63,11 +73,13 @@ print(line); print(f"{len(rows)} ligne(s)")
 PY
 }
 
+# run_sql <documents|folders> <requête>
 run_sql() {
-  local sql="$1"
-  case "$PROVIDER" in
+  local part="$1" sql="$2"
+  rc() { read_config "$part" "$1"; }
+  case "$(rc provider)" in
     sqlite)
-      local file; file="$(read_config file)"
+      local file; file="$(rc file)"
       [[ -f "$file" ]] || { echo "Base SQLite introuvable : $file (lancez d'abord la GED une fois)" >&2; exit 1; }
       if command -v sqlite3 >/dev/null; then
         sqlite3 -box "$file" "$sql"
@@ -77,8 +89,8 @@ run_sql() {
       ;;
     mysql|mariadb)
       local user pass db host port
-      user="$(read_config user)"; pass="$(read_config password)"; db="$(read_config database)"
-      host="$(read_config server)"; port="$(read_config port)"
+      user="$(rc user)"; pass="$(rc password)"; db="$(rc database)"
+      host="$(rc server)"; port="$(rc port)"
       if command -v mysql >/dev/null; then
         MYSQL_PWD="$pass" mysql -h "${host:-127.0.0.1}" -P "${port:-3306}" -u "$user" "$db" --table -e "$sql"
       else
@@ -87,33 +99,35 @@ run_sql() {
       ;;
     sqlserver)
       local user pass db
-      user="$(read_config user)"; pass="$(read_config password)"; db="$(read_config database)"
+      user="$(rc user)"; pass="$(rc password)"; db="$(rc database)"
       if command -v sqlcmd >/dev/null; then
-        sqlcmd -S "$(read_config server)" -U "$user" -P "$pass" -d "$db" -C -W -s "|" -Q "SET NOCOUNT ON; $sql"
+        sqlcmd -S "$(rc server)" -U "$user" -P "$pass" -d "$db" -C -W -s "|" -Q "SET NOCOUNT ON; $sql"
       else
         docker compose exec -T sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U "$user" -P "$pass" -d "$db" \
           -C -W -s "|" -Q "SET NOCOUNT ON; $sql"
       fi
       ;;
-    *) echo "Base non gérée par ce script : $PROVIDER" >&2; exit 1 ;;
+    *) echo "Base non gérée par ce script : $(rc provider)" >&2; exit 1 ;;
   esac
 }
 
+# open_shell <documents|folders>
 open_shell() {
-  case "$PROVIDER" in
+  local part="$1"
+  rc() { read_config "$part" "$1"; }
+  case "$(rc provider)" in
     sqlite)
       command -v sqlite3 >/dev/null || { echo "Console interactive : installez sqlite3 (sudo apt install sqlite3)" >&2; exit 1; }
-      sqlite3 -box "$(read_config file)" ;;
+      sqlite3 -box "$(rc file)" ;;
     mysql|mariadb)
       if command -v mysql >/dev/null; then
-        MYSQL_PWD="$(read_config password)" mysql -h "$(read_config server)" -P "$(read_config port)" \
-          -u "$(read_config user)" "$(read_config database)"
+        MYSQL_PWD="$(rc password)" mysql -h "$(rc server)" -P "$(rc port)" -u "$(rc user)" "$(rc database)"
       else
-        docker compose exec -e MYSQL_PWD="$(read_config password)" mysql mysql -u "$(read_config user)" "$(read_config database)"
+        docker compose exec -e MYSQL_PWD="$(rc password)" mysql mysql -u "$(rc user)" "$(rc database)"
       fi ;;
     sqlserver)
-      docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U "$(read_config user)" \
-        -P "$(read_config password)" -d "$(read_config database)" -C ;;
+      docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U "$(rc user)" \
+        -P "$(rc password)" -d "$(rc database)" -C ;;
   esac
 }
 
@@ -143,31 +157,60 @@ Q_STATS="SELECT
   (SELECT COUNT(DISTINCT tag) FROM document_tags) AS tags,
   (SELECT COALESCE(SUM(size_bytes), 0) FROM document_versions) AS octets_stockes"
 
+# Deux bases séparées : pas de jointure possible entre documents et dossiers, chaque requête reste dans sa base.
+if [[ $SPLIT == 1 ]]; then
+  Q_DOCUMENTS="SELECT d.id, d.title AS titre, d.status AS statut, COALESCE(d.folder_id, '(racine)') AS id_dossier,
+  (SELECT MAX(v.version_number) FROM document_versions v WHERE v.document_id = d.id) AS version, d.created_at AS cree_le
+FROM documents d ORDER BY d.title_normalized"
+
+  Q_DOSSIERS="SELECT f.id, f.name AS nom, COALESCE(p.name, '-') AS parent
+FROM folders f LEFT JOIN folders p ON p.id = f.parent_id ORDER BY f.name"
+
+  Q_STATS="SELECT
+  (SELECT COUNT(*) FROM documents WHERE status = 'Active') AS documents_actifs,
+  (SELECT COUNT(*) FROM documents WHERE status = 'Trashed') AS dans_corbeille,
+  (SELECT COUNT(*) FROM document_versions) AS versions,
+  (SELECT COUNT(DISTINCT tag) FROM document_tags) AS tags,
+  (SELECT COALESCE(SUM(size_bytes), 0) FROM document_versions) AS octets_stockes"
+  Q_STATS_DOSSIERS="SELECT COUNT(*) AS dossiers FROM folders"
+fi
+
 title() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 
+stats() {
+  run_sql documents "$Q_STATS"
+  if [[ $SPLIT == 1 ]]; then run_sql folders "$Q_STATS_DOSSIERS"; fi
+}
+
 case "${1:-tout}" in
-  documents) run_sql "$Q_DOCUMENTS" ;;
-  versions)  run_sql "$Q_VERSIONS" ;;
-  tags)      run_sql "$Q_TAGS" ;;
-  dossiers)  run_sql "$Q_DOSSIERS" ;;
-  corbeille) run_sql "$Q_CORBEILLE" ;;
-  stats)     run_sql "$Q_STATS" ;;
-  sql)       run_sql "${2:?Usage : $0 sql \"SELECT ...\"}" ;;
-  shell)     open_shell ;;
+  documents) run_sql documents "$Q_DOCUMENTS" ;;
+  versions)  run_sql documents "$Q_VERSIONS" ;;
+  tags)      run_sql documents "$Q_TAGS" ;;
+  dossiers)  run_sql folders "$Q_DOSSIERS" ;;
+  corbeille) run_sql documents "$Q_CORBEILLE" ;;
+  stats)     stats ;;
+  sql)          run_sql documents "${2:?Usage : $0 sql \"SELECT ...\"}" ;;
+  sql-dossiers) run_sql folders "${2:?Usage : $0 sql-dossiers \"SELECT ...\"}" ;;
+  shell)     if [[ "${2:-}" == dossiers ]]; then open_shell folders; else open_shell documents; fi ;;
   fichiers)
-    STORAGE="$(read_config storage)"
+    STORAGE="$(read_config documents storage)"
     [[ -d "$STORAGE" ]] || { echo "Dossier de stockage vide ou absent : $STORAGE"; exit 0; }
     echo "Dossier : $STORAGE — $(find "$STORAGE" -type f | wc -l) fichier(s), $(du -sh "$STORAGE" | cut -f1)"
     find "$STORAGE" -type f -printf '%TY-%Tm-%Td %TH:%TM  %8s o  %f\n' | sort
     ;;
   tout)
-    echo "Base : $PROVIDER  (configuration : $CONFIG)"
-    title "Statistiques";  run_sql "$Q_STATS"
-    title "Dossiers";      run_sql "$Q_DOSSIERS"
-    title "Documents";     run_sql "$Q_DOCUMENTS"
-    title "Versions";      run_sql "$Q_VERSIONS"
-    title "Tags";          run_sql "$Q_TAGS"
+    if [[ $SPLIT == 1 ]]; then
+      echo "Deux bases : documents → $(read_config documents provider), dossiers → $(read_config folders provider)"
+    else
+      echo "Base : $(read_config documents provider)"
+    fi
+    echo "(configuration : $CONFIG)"
+    title "Statistiques";  stats
+    title "Dossiers$([[ $SPLIT == 1 ]] && echo " — base $(read_config folders provider)")";      run_sql folders "$Q_DOSSIERS"
+    title "Documents$([[ $SPLIT == 1 ]] && echo " — base $(read_config documents provider)")";   run_sql documents "$Q_DOCUMENTS"
+    title "Versions";      run_sql documents "$Q_VERSIONS"
+    title "Tags";          run_sql documents "$Q_TAGS"
     ;;
-  -h|--help|help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "Commande inconnue : $1 (voir $0 help)" >&2; exit 1 ;;
 esac

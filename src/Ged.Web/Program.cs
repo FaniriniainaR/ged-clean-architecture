@@ -13,7 +13,7 @@ if (!url.EndsWith('/')) url += "/";
 var listener = new HttpListener();
 listener.Prefixes.Add(url);
 listener.Start();
-Console.WriteLine($"GED web : {url}   (base : {config.Database.Provider}) — Ctrl+C pour arrêter");
+Console.WriteLine($"GED web : {url}   (base : {config.DescribeDatabases()}) — Ctrl+C pour arrêter");
 
 Console.CancelKeyPress += (_, e) =>
 {

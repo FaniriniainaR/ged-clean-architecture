@@ -5,10 +5,12 @@ namespace Ged.Infrastructure.Sql;
 /// <summary>
 /// Crée les tables si elles n'existent pas. Les types utilisés (CHAR, NVARCHAR, INT, BIGINT)
 /// sont acceptés par SQLite, MySQL/MariaDB et SQL Server : un seul script pour toutes les bases.
+/// Les tables des dossiers et celles des documents sont indépendantes (aucune clé étrangère entre elles),
+/// ce qui permet de les placer dans deux bases différentes.
 /// </summary>
 public sealed class SchemaInitializer(SqlConnectionFactory connections)
 {
-    private static readonly string[] Statements =
+    private static readonly string[] FolderStatements =
     [
         """
         CREATE TABLE folders (
@@ -18,6 +20,10 @@ public sealed class SchemaInitializer(SqlConnectionFactory connections)
             created_at  VARCHAR(40)   NOT NULL
         )
         """,
+    ];
+
+    private static readonly string[] DocumentStatements =
+    [
         """
         CREATE TABLE documents (
             id                CHAR(36)      NOT NULL PRIMARY KEY,
@@ -53,23 +59,34 @@ public sealed class SchemaInitializer(SqlConnectionFactory connections)
         """,
     ];
 
+    /// <summary>Crée toutes les tables dans la même base.</summary>
     public void EnsureCreated()
     {
+        EnsureFolderTables();
+        EnsureDocumentTables();
+    }
+
+    public void EnsureFolderTables() => EnsureCreated("folders", FolderStatements);
+
+    public void EnsureDocumentTables() => EnsureCreated("documents", DocumentStatements);
+
+    private void EnsureCreated(string mainTable, string[] statements)
+    {
         using var connection = connections.Open();
-        if (TablesExist(connection)) return;
+        if (TableExists(connection, mainTable)) return;
 
         using var transaction = connection.BeginTransaction();
-        foreach (var sql in Statements)
+        foreach (var sql in statements)
             connection.Command(sql, transaction).ExecuteNonQuery();
         transaction.Commit();
     }
 
     // « CREATE TABLE IF NOT EXISTS » n'existe pas en SQL Server : on teste plutôt une requête simple.
-    private static bool TablesExist(DbConnection connection)
+    private static bool TableExists(DbConnection connection, string table)
     {
         try
         {
-            connection.Command("SELECT COUNT(*) FROM documents WHERE 1 = 0").ExecuteScalar();
+            connection.Command($"SELECT COUNT(*) FROM {table} WHERE 1 = 0").ExecuteScalar();
             return true;
         }
         catch (DbException)

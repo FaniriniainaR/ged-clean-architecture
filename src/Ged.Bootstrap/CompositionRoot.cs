@@ -34,10 +34,13 @@ public sealed class CompositionRoot
         var policy = Policy = new DocumentPolicy(config.MaxFileSizeMb * 1024L * 1024L, config.TrashRetentionDays);
 
         // Adaptateurs : changer de base ne touche que la configuration lue ici.
-        var connections = new SqlConnectionFactory(config.Database);
-        new SchemaInitializer(connections).EnsureCreated();
-        var documents = new SqlDocumentRepository(connections);
-        var folders = new SqlFolderRepository(connections);
+        // Chaque dépôt a sa propre connexion : documents et dossiers peuvent être dans deux bases différentes.
+        var documentsDb = new SqlConnectionFactory(config.DocumentsDatabase);
+        var foldersDb = new SqlConnectionFactory(config.FoldersDatabase);
+        new SchemaInitializer(documentsDb).EnsureDocumentTables();
+        new SchemaInitializer(foldersDb).EnsureFolderTables();
+        var documents = new SqlDocumentRepository(documentsDb);
+        var folders = new SqlFolderRepository(foldersDb);
         var storage = new LocalDiskFileStorage(config.StoragePath);
         var clock = new SystemClock();
         var intake = new FileIntake(storage, new Sha256ChecksumCalculator(), policy);

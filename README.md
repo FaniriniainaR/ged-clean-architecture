@@ -7,6 +7,7 @@ Gestion électronique de documents : dépôt de fichiers, versions, dossiers, ta
 - Les seules dépendances externes sont les **drivers** de base de données (impossibles à éviter) :
   `Microsoft.Data.Sqlite`, `MySqlConnector`, `Microsoft.Data.SqlClient`.
 - **On change de base sans toucher au code** : il suffit de modifier `ged.config.json`.
+- **On peut utiliser deux bases différentes en même temps** : par exemple les documents dans MySQL et les dossiers dans SQL Server.
 - **Deux interfaces sur le même noyau** : une interface web et une ligne de commande.
 
 ## Architecture
@@ -80,6 +81,57 @@ Les tables sont créées automatiquement au premier lancement.
    pas d'`UPSERT` spécifique, identifiants `Guid` générés par l'application, dates en texte ISO 8601).
 3. `SqlConnectionFactory` choisit le driver d'après le nom lu dans la configuration.
 
+## Utiliser deux bases différentes en même temps
+
+Les documents (avec leurs versions et leurs tags) et les dossiers peuvent être dans **deux bases différentes**,
+même de moteurs différents. Il suffit d'ajouter une section `databases` (exemple complet : `config/ged.deux-bases.json`) :
+
+```json
+"database": { "provider": "sqlite", "connectionString": "Data Source=ged.db" },
+"databases": {
+  "documents": { "provider": "mysql",     "connectionString": "Server=localhost;Port=3306;Database=ged;User ID=ged;Password=ged" },
+  "folders":   { "provider": "sqlserver", "connectionString": "Server=localhost,1433;Database=ged;User ID=sa;Password=...;TrustServerCertificate=True" }
+}
+```
+
+- `database` reste la base par défaut : une partie absente de `databases` va dans `database`.
+- Sans section `databases`, tout est dans la même base, comme avant.
+- Au démarrage, chaque base ne reçoit que ses propres tables : `documents`, `document_versions` et `document_tags`
+  d'un côté, `folders` de l'autre.
+
+| Partie | Tables | Port utilisé par le noyau |
+|---|---|---|
+| `documents` | `documents`, `document_versions`, `document_tags` | `IDocumentRepository` |
+| `folders` | `folders` | `IFolderRepository` |
+
+**Pourquoi ça marche sans changer le code :**
+
+1. Les cas d'utilisation ne parlent qu'aux interfaces `IDocumentRepository` et `IFolderRepository`.
+   Ils ne savent pas si elles utilisent la même base ou deux bases différentes.
+2. Aucune requête SQL ne fait de jointure entre les documents et les dossiers, et il n'y a pas de clé étrangère entre eux.
+   Les règles qui les relient sont dans les cas d'utilisation : « le dossier doit exister » (`UploadDocument`, `MoveDocument`)
+   et « un dossier non vide ne peut pas être supprimé » (`DeleteFolder`).
+3. Dans `CompositionRoot`, chaque dépôt reçoit sa propre connexion :
+
+```csharp
+var documentsDb = new SqlConnectionFactory(config.DocumentsDatabase);
+var foldersDb = new SqlConnectionFactory(config.FoldersDatabase);
+var documents = new SqlDocumentRepository(documentsDb);
+var folders = new SqlFolderRepository(foldersDb);
+```
+
+**Limite :** il n'y a pas de transaction commune aux deux bases. Une opération qui modifie les deux à la fois
+ne serait pas annulée entièrement en cas d'erreur. Aujourd'hui, aucun cas d'utilisation n'écrit dans les deux bases
+à la fois : chacun écrit dans une seule base et se contente de lire l'autre.
+
+Démonstration :
+
+```bash
+scripts/bases-docker.sh start
+GED_CONFIG=config/ged.deux-bases.json dotnet run --project src/Ged.Web
+GED_CONFIG=config/ged.deux-bases.json scripts/voir-base.sh
+```
+
 ### Ajouter une nouvelle base (ex. PostgreSQL)
 
 Ajouter le driver (`dotnet add src/Ged.Infrastructure package Npgsql`) et **une ligne** dans
@@ -147,11 +199,15 @@ scripts/voir-base.sh dossiers      # dossiers, parent et nombre de documents
 scripts/voir-base.sh corbeille     # documents dans la corbeille
 scripts/voir-base.sh stats         # compteurs et taille totale
 scripts/voir-base.sh fichiers      # fichiers présents dans le dossier de stockage
-scripts/voir-base.sh sql "SELECT * FROM documents"   # requête libre
-scripts/voir-base.sh shell         # console SQL interactive
+scripts/voir-base.sh sql "SELECT * FROM documents"        # requête libre (base des documents)
+scripts/voir-base.sh sql-dossiers "SELECT * FROM folders"  # requête libre (base des dossiers)
+scripts/voir-base.sh shell         # console SQL interactive (shell dossiers : base des dossiers)
 ```
 
 Pour regarder une autre base : `GED_CONFIG=config/ged.mysql.json scripts/voir-base.sh`.
+
+Avec deux bases séparées, le script interroge chacune pour ses propres tables. Comme on ne peut pas faire de jointure
+entre deux bases, la liste des documents affiche l'identifiant du dossier (`id_dossier`) au lieu de son nom.
 
 | Base | Outil utilisé |
 |---|---|
@@ -201,6 +257,9 @@ dotnet run --project tests/Ged.Tests
 ```
 
 Les **mêmes tests de contrat** sont exécutés sur chaque base : s'ils passent partout, la base est interchangeable.
+
+Les tests « Deux bases » lancent les vrais cas d'utilisation avec les documents dans une base et les dossiers dans une autre :
+deux fichiers SQLite par défaut, et MySQL + SQL Server quand les deux variables ci-dessus sont définies.
 
 ## Évolutions possibles
 

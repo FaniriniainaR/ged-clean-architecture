@@ -1,6 +1,8 @@
 {
   // Choix de la base : "sqlite", "mysql" (ou "mariadb") ou "sqlserver".
   // Changer de base = changer ces deux lignes. Aucun code à modifier.
+  // Pour mettre les documents et les dossiers dans deux bases différentes,
+  // ajouter une section « databases » (voir config/ged.deux-bases.json).
   "database": {
     "provider": "sqlite",
     "connectionString": "Data Source=ged.db"

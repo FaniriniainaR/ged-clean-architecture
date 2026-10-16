@@ -29,6 +29,21 @@ foreach (var options in databases)
     })));
 }
 
+// Deux bases séparées : documents dans l'une, dossiers dans l'autre.
+static DatabaseOptions TempSqlite(string name)
+    => new("sqlite", $"Data Source={Path.Combine(Path.GetTempPath(), $"ged-test-{name}-{Guid.NewGuid():N}.db")};Pooling=False");
+
+results.Add(TestRunner.Run("Deux bases : documents (sqlite) + dossiers (autre fichier sqlite)",
+    SplitDatabaseTests.All(TempSqlite("documents"), TempSqlite("dossiers"), freshDatabases: true)));
+if (Environment.GetEnvironmentVariable("GED_TEST_MYSQL") is { } m && Environment.GetEnvironmentVariable("GED_TEST_SQLSERVER") is { } ss)
+{
+    // Pour ce test, les dossiers vont dans une base SQL Server distincte, sans tables de documents.
+    var foldersOnly = ss.Replace("Database=ged;", "Database=ged_dossiers;");
+    EnsureSqlServerDatabase(ss, "ged_dossiers");
+    results.Add(TestRunner.Run("Deux bases : documents (mysql) + dossiers (sqlserver)",
+        SplitDatabaseTests.All(new DatabaseOptions("mysql", m), new DatabaseOptions("sqlserver", foldersOnly), freshDatabases: false)));
+}
+
 var passed = results.Sum(r => r.Passed);
 var failed = results.Sum(r => r.Failed);
 Console.WriteLine($"\n{passed} réussi(s), {failed} échoué(s).");
@@ -45,4 +60,12 @@ static void ClearTables(SqlConnectionFactory connections)
         command.CommandText = $"DELETE FROM {table}";
         command.ExecuteNonQuery();
     }
+}
+
+static void EnsureSqlServerDatabase(string connectionString, string name)
+{
+    using var connection = new SqlConnectionFactory(new DatabaseOptions("sqlserver", connectionString)).Open();
+    using var command = connection.CreateCommand();
+    command.CommandText = $"IF DB_ID('{name}') IS NULL CREATE DATABASE {name}";
+    command.ExecuteNonQuery();
 }
