@@ -196,7 +196,14 @@ case "${1:-tout}" in
     STORAGE="$(read_config documents storage)"
     [[ -d "$STORAGE" ]] || { echo "Dossier de stockage vide ou absent : $STORAGE"; exit 0; }
     echo "Dossier : $STORAGE — $(find "$STORAGE" -type f | wc -l) fichier(s), $(du -sh "$STORAGE" | cut -f1)"
-    find "$STORAGE" -type f -printf '%TY-%Tm-%Td %TH:%TM  %8s o  %f\n' | sort
+    # Python plutôt que « find -printf », absent de macOS.
+    python3 - "$STORAGE" <<'PY' | sort
+import os, sys, time
+for d, _, files in os.walk(sys.argv[1]):
+    for f in files:
+        st = os.stat(os.path.join(d, f))
+        print(f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(st.st_mtime))}  {st.st_size:8d} o  {f}")
+PY
     ;;
   tout)
     if [[ $SPLIT == 1 ]]; then

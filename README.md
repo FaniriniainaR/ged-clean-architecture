@@ -1,5 +1,7 @@
 # GED légère — Clean Architecture en C# (sans framework)
 
+[![CI](https://github.com/FaniriniainaR/ged-clean-architecture/actions/workflows/ci.yml/badge.svg)](https://github.com/FaniriniainaR/ged-clean-architecture/actions/workflows/ci.yml)
+
 Gestion électronique de documents : dépôt de fichiers, versions, dossiers, tags, recherche, corbeille.
 
 - **Aucun framework** : ni ASP.NET, ni Entity Framework, ni conteneur d'injection, ni framework de test.
@@ -260,6 +262,12 @@ Les **mêmes tests de contrat** sont exécutés sur chaque base : s'ils passent 
 
 Les tests « Deux bases » lancent les vrais cas d'utilisation avec les documents dans une base et les dossiers dans une autre :
 deux fichiers SQLite par défaut, et MySQL + SQL Server quand les deux variables ci-dessus sont définies.
+
+### Intégration continue
+
+À chaque push sur `main` et à chaque pull request, GitHub Actions (`.github/workflows/ci.yml`) compile le projet
+et lance les tests : d'abord sur SQLite, puis sur MySQL et SQL Server (démarrés comme conteneurs par GitHub).
+Les mêmes tests de contrat passent donc sur les trois bases à chaque modification.
 
 ## Évolutions possibles
 

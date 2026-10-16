@@ -1,0 +1,97 @@
+# Intégration continue : à chaque push et pull request, on compile et on lance les tests.
+#   - « Build + tests SQLite »          : domaine, cas d'utilisation, dépôts en mémoire et SQLite
+#   - « Tests MySQL + SQL Server »      : les mêmes tests de contrat sur les deux autres bases,
+#                                         plus le test « deux bases » (documents MySQL, dossiers SQL Server)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  sqlite:
+    name: Build + tests SQLite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restauration des paquets
+        run: dotnet restore Ged.sln
+
+      - name: Compilation
+        run: dotnet build Ged.sln --no-restore --configuration Release
+
+      - name: Tests (domaine, cas d'utilisation, mémoire, SQLite)
+        run: dotnet run --project tests/Ged.Tests --no-build --configuration Release
+
+  bases:
+    name: Tests MySQL + SQL Server
+    runs-on: ubuntu-latest
+    needs: sqlite
+
+    # Mêmes bases que docker-compose.yml.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ged
+          MYSQL_USER: ged
+          MYSQL_PASSWORD: ged
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -uroot -proot --silent"
+          --health-interval 5s --health-timeout 5s --health-retries 30
+
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Ged_Passw0rd!"
+        ports: ["1433:1433"]
+
+    env:
+      GED_TEST_MYSQL: "Server=127.0.0.1;Port=3306;Database=ged;User ID=ged;Password=ged"
+      GED_TEST_SQLSERVER: "Server=127.0.0.1,1433;Database=ged;User ID=sa;Password=Ged_Passw0rd!;TrustServerCertificate=True"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compilation
+        run: dotnet build Ged.sln --configuration Release
+
+      # SQL Server démarre lentement et n'a pas de base « ged » au départ : on attend puis on la crée.
+      - name: Attente de SQL Server et création de la base « ged »
+        run: |
+          sqlcmd() {
+            docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd \
+              -S localhost -U sa -P 'Ged_Passw0rd!' -C "$@"
+          }
+          for _ in $(seq 1 40); do
+            if sqlcmd -Q "SELECT 1" >/dev/null 2>&1; then
+              sqlcmd -Q "IF DB_ID('ged') IS NULL CREATE DATABASE ged"
+              echo "SQL Server prêt."
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "SQL Server n'a pas démarré à temps." >&2
+          docker logs ${{ job.services.sqlserver.id }}
+          exit 1
+
+      - name: Tests sur SQLite, MySQL et SQL Server
+        run: dotnet run --project tests/Ged.Tests --no-build --configuration Release
