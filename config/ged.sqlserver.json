@@ -1,0 +1,9 @@
+{
+  "database": {
+    "provider": "sqlserver",
+    "connectionString": "Server=localhost,1433;Database=ged;User ID=sa;Password=Ged_Passw0rd!;TrustServerCertificate=True"
+  },
+  "storagePath": "storage",
+  "maxFileSizeMb": 20,
+  "trashRetentionDays": 30
+}

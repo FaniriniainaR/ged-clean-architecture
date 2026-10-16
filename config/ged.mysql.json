@@ -1,0 +1,9 @@
+{
+  "database": {
+    "provider": "mysql",
+    "connectionString": "Server=localhost;Port=3306;Database=ged;User ID=ged;Password=ged"
+  },
+  "storagePath": "storage",
+  "maxFileSizeMb": 20,
+  "trashRetentionDays": 30
+}

@@ -1,0 +1,11 @@
+{
+  // Choix de la base : "sqlite", "mysql" (ou "mariadb") ou "sqlserver".
+  // Changer de base = changer ces deux lignes. Aucun code à modifier.
+  "database": {
+    "provider": "sqlite",
+    "connectionString": "Data Source=ged.db"
+  },
+  "storagePath": "storage",
+  "maxFileSizeMb": 20,
+  "trashRetentionDays": 30
+}

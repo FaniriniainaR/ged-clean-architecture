@@ -1,0 +1,9 @@
+{
+  "database": {
+    "provider": "sqlite",
+    "connectionString": "Data Source=ged.db"
+  },
+  "storagePath": "storage",
+  "maxFileSizeMb": 20,
+  "trashRetentionDays": 30
+}
