@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Ged.Infrastructure\Ged.Infrastructure.csproj" />
+    <ProjectReference Include="..\Ged.Bootstrap\Ged.Bootstrap.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -16,6 +16,8 @@ public sealed record MimeType
         ["xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     };
 
+    public static IReadOnlyCollection<string> AllowedExtensions => AllowedByExtension.Keys;
+
     public string Value { get; }
 
     private MimeType(string value) => Value = value;

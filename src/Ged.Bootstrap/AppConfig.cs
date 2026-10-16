@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Ged.Infrastructure.Sql;
 
-namespace Ged.Cli;
+namespace Ged.Bootstrap;
 
 /// <summary>Configuration lue depuis ged.config.json (ou le fichier indiqué par la variable GED_CONFIG).</summary>
 public sealed class AppConfig
@@ -10,6 +10,7 @@ public sealed class AppConfig
     public string StoragePath { get; init; } = "storage";
     public int MaxFileSizeMb { get; init; } = 20;
     public int TrashRetentionDays { get; init; } = 30;
+    public string WebUrl { get; init; } = "http://localhost:5000/";
 
     public static AppConfig Load()
     {

@@ -2,6 +2,7 @@ using System.Data.Common;
 using Ged.Application.Common;
 using Ged.Application.Dtos;
 using Ged.Application.UseCases;
+using Ged.Bootstrap;
 using Ged.Cli;
 using Ged.Domain.Common;
 

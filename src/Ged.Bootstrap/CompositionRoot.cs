@@ -5,10 +5,10 @@ using Ged.Infrastructure.Services;
 using Ged.Infrastructure.Sql;
 using Ged.Infrastructure.Storage;
 
-namespace Ged.Cli;
+namespace Ged.Bootstrap;
 
 /// <summary>
-/// Seul endroit qui connaît les implémentations concrètes : on y « branche » les adaptateurs sur les ports.
+/// Partagé par la CLI et le site web. Seul endroit qui connaît les implémentations concrètes : on y « branche » les adaptateurs sur les ports.
 /// Injection de dépendances faite à la main, sans framework.
 /// </summary>
 public sealed class CompositionRoot
@@ -27,10 +27,11 @@ public sealed class CompositionRoot
     public CreateFolder CreateFolder { get; }
     public ListFolders ListFolders { get; }
     public DeleteFolder DeleteFolder { get; }
+    public DocumentPolicy Policy { get; }
 
     public CompositionRoot(AppConfig config)
     {
-        var policy = new DocumentPolicy(config.MaxFileSizeMb * 1024L * 1024L, config.TrashRetentionDays);
+        var policy = Policy = new DocumentPolicy(config.MaxFileSizeMb * 1024L * 1024L, config.TrashRetentionDays);
 
         // Adaptateurs : changer de base ne touche que la configuration lue ici.
         var connections = new SqlConnectionFactory(config.Database);
